@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Mininet install script for Ubuntu (and Debian Wheezy+)
+# Mininet install script for Ubuntu (and Debian Lenny)
 # Brandon Heller (brandonh@stanford.edu)
 
 # Fail on error
@@ -13,7 +13,7 @@ set -o nounset
 MININET_DIR="$( cd -P "$( dirname "${BASH_SOURCE[0]}" )/../.." && pwd -P )"
 
 # Set up build directory, which by default is the working directory
-#  unless the working directory is a subdirectory of mininet,
+#  unless the working directory is a subdirectory of mininet, 
 #  in which case we use the directory containing mininet
 BUILD_DIR="$(pwd -P)"
 case $BUILD_DIR in
@@ -36,18 +36,28 @@ if [ "$ARCH" = "i686" ]; then ARCH="i386"; fi
 test -e /etc/debian_version && DIST="Debian"
 grep Ubuntu /etc/lsb-release &> /dev/null && DIST="Ubuntu"
 if [ "$DIST" = "Ubuntu" ] || [ "$DIST" = "Debian" ]; then
-    # Truly non-interactive apt-get installation
-    install='sudo DEBIAN_FRONTEND=noninteractive apt-get -y -q install'
-    remove='sudo DEBIAN_FRONTEND=noninteractive apt-get -y -q remove'
+    install='sudo apt-get -y install'
+    remove='sudo apt-get -y remove'
     pkginst='sudo dpkg -i'
     # Prereqs for this script
     if ! which lsb_release &> /dev/null; then
         $install lsb-release
     fi
 fi
+
+test -e /etc/centos-release && DIST="CentOS"
+if [ "$DIST" = "CentOS" ]; then
+    install='sudo yum -y install'
+    remove='sudo yum -y erase'
+    pkginst='sudo rpm -ivh'
+    #prereps for this script
+    if ! which lsb_release &> /dev/null; then
+       $install redhat-lsb-core
+    fi
+fi
+
 test -e /etc/fedora-release && DIST="Fedora"
-test -e /etc/redhat-release && DIST="RedHatEnterpriseServer"
-if [ "$DIST" = "Fedora" -o "$DIST" = "RedHatEnterpriseServer" ]; then
+if [ "$DIST" = "Fedora" ]; then
     install='sudo yum -y install'
     remove='sudo yum -y erase'
     pkginst='sudo rpm -ivh'
@@ -68,8 +78,8 @@ echo "Detected Linux distribution: $DIST $RELEASE $CODENAME $ARCH"
 KERNEL_NAME=`uname -r`
 KERNEL_HEADERS=kernel-headers-${KERNEL_NAME}
 
-if ! echo $DIST | egrep 'Ubuntu|Debian|Fedora|RedHatEnterpriseServer'; then
-    echo "Install.sh currently only supports Ubuntu, Debian, RedHat and Fedora."
+if ! echo $DIST | egrep 'Ubuntu|Debian|Fedora|CentOS'; then
+    echo "Install.sh currently only supports Ubuntu, Debian, Fedora and Centos."
     exit 1
 fi
 
@@ -103,10 +113,11 @@ OF13_SWITCH_REV=${OF13_SWITCH_REV:-""}
 
 function kernel {
     echo "Install Mininet-compatible kernel if necessary"
-    sudo apt-get update
-    if ! $install linux-image-$KERNEL_NAME; then
-        echo "Could not install linux-image-$KERNEL_NAME"
-        echo "Skipping - assuming installed kernel is OK."
+    if [ "$DIST" = "CentOS" ]; then
+        sudo yum -y update
+    else
+        sudo apt-get update
+        $install linux-image-$KERNEL_NAME
     fi
 }
 
@@ -125,8 +136,14 @@ function kernel_clean {
 # Install Mininet deps
 function mn_deps {
     echo "Installing Mininet dependencies"
-    if [ "$DIST" = "Fedora" -o "$DIST" = "RedHatEnterpriseServer" ]; then
+    if [ "$DIST" = "Fedora" ]; then
         $install gcc make socat psmisc xterm openssh-clients iperf \
+            iproute telnet python-setuptools libcgroup-tools \
+            ethtool help2man pyflakes pylint python-pep8
+    elif [ "$DIST" = "CentOS" ]; then
+        $install epel-release
+        sudo yum -y update
+        $install gcc make socat psmisc xterm openssh-clients iperf3 \
             iproute telnet python-setuptools libcgroup-tools \
             ethtool help2man pyflakes pylint python-pep8
     else
@@ -145,9 +162,6 @@ function mn_deps {
 function mn_dev {
     echo "Installing Mininet developer dependencies"
     $install doxygen doxypy texlive-fonts-recommended
-    if ! $install doxygen-latex; then
-        echo "doxygen-latex not needed"
-    fi
 }
 
 # The following will cause a full OF install, covering:
@@ -158,14 +172,12 @@ function of {
     echo "Installing OpenFlow reference implementation..."
     cd $BUILD_DIR
     $install autoconf automake libtool make gcc
-    if [ "$DIST" = "Fedora" -o "$DIST" = "RedHatEnterpriseServer" ]; then
+    if [ "$DIST" = "Fedora" ] || [ "$DIST" = "CentOS" ]; then
         $install git pkgconfig glibc-devel
     else
         $install git-core autotools-dev pkg-config libc6-dev
     fi
-    # was: git clone git://openflowswitch.org/openflow.git
-    # Use our own fork on github for now:
-    git clone git://github.com/mininet/openflow
+    git clone git://openflowswitch.org/openflow.git
     cd $BUILD_DIR/openflow
 
     # Patch controller to handle more than 16 switches
@@ -196,24 +208,17 @@ function of13 {
     fi
 
     # Install netbee
-    if [ "$DIST" = "Ubuntu" ] && version_ge $RELEASE 14.04; then
-        NBEESRC="nbeesrc-feb-24-2015"
-        NBEEDIR="netbee"
-    else
-        NBEESRC="nbeesrc-jan-10-2013"
-        NBEEDIR="nbeesrc-jan-10-2013"
-    fi
-
+    NBEESRC="nbeesrc-jan-10-2013"
     NBEEURL=${NBEEURL:-http://www.nbee.org/download/}
     wget -nc ${NBEEURL}${NBEESRC}.zip
     unzip ${NBEESRC}.zip
-    cd ${NBEEDIR}/src
+    cd ${NBEESRC}/src
     cmake .
     make
     cd $BUILD_DIR/
-    sudo cp ${NBEEDIR}/bin/libn*.so /usr/local/lib
+    sudo cp ${NBEESRC}/bin/libn*.so /usr/local/lib
     sudo ldconfig
-    sudo cp -R ${NBEEDIR}/include/ /usr/
+    sudo cp -R ${NBEESRC}/include/ /usr/
 
     # Resume the install:
     cd $BUILD_DIR/ofsoftswitch13
@@ -228,7 +233,7 @@ function of13 {
 function install_wireshark {
     if ! which wireshark; then
         echo "Installing Wireshark"
-        if [ "$DIST" = "Fedora" -o "$DIST" = "RedHatEnterpriseServer" ]; then
+        if [ "$DIST" = "Fedora" ] || [ "$DIST" = "CentOS" ]; then
             $install wireshark wireshark-gnome
         else
             $install wireshark tshark
@@ -255,7 +260,12 @@ function install_wireshark {
 
     # Copy into plugin directory
     # libwireshark0/ on 11.04; libwireshark1/ on later
-    WSDIR=`find /usr/lib -type d -name 'libwireshark*' | head -1`
+    if [ "$DIST" = "CentOS" ]; then
+        WSDIR=`find /usr/lib64 -type d -name 'wireshark*' | head -1`
+    else
+        WSDIR=`find /usr/lib -type d -name 'libwireshark*' | head -1`
+    fi
+
     WSPLUGDIR=$WSDIR/plugins/
     PLUGIN=loxi_output/wireshark/openflow.lua
     sudo cp $PLUGIN $WSPLUGDIR
@@ -272,63 +282,53 @@ function ubuntuOvs {
     OVS_SRC=$BUILD_DIR/openvswitch
     OVS_TARBALL_LOC=http://openvswitch.org/releases
 
-    if ! echo "$DIST" | egrep "Ubuntu|Debian" > /dev/null; then
-        echo "OS must be Ubuntu or Debian"
-        $cd BUILD_DIR
-        return
-    fi
-    if [ "$DIST" = "Ubuntu" ] && ! version_ge $RELEASE 12.04; then
-        echo "Ubuntu version must be >= 12.04"
-        cd $BUILD_DIR
-        return
-    fi
-    if [ "$DIST" = "Debian" ] && ! version_ge $RELEASE 7.0; then
-        echo "Debian version must be >= 7.0"
-        cd $BUILD_DIR
-        return
-    fi
+    if [ "$DIST" = "Ubuntu" ] && version_ge $RELEASE 12.04; then
+        rm -rf $OVS_SRC
+        mkdir -p $OVS_SRC
+        cd $OVS_SRC
 
-    rm -rf $OVS_SRC
-    mkdir -p $OVS_SRC
-    cd $OVS_SRC
+        if wget $OVS_TARBALL_LOC/openvswitch-$OVS_RELEASE.tar.gz 2> /dev/null; then
+            tar xzf openvswitch-$OVS_RELEASE.tar.gz
+        else
+            echo "Failed to find OVS at $OVS_TARBALL_LOC/openvswitch-$OVS_RELEASE.tar.gz"
+            cd $BUILD_DIR
+            return
+        fi
 
-    if wget $OVS_TARBALL_LOC/openvswitch-$OVS_RELEASE.tar.gz 2> /dev/null; then
-        tar xzf openvswitch-$OVS_RELEASE.tar.gz
+        # Remove any old packages
+        $remove openvswitch-common openvswitch-datapath-dkms openvswitch-controller \
+                openvswitch-pki openvswitch-switch
+
+        # Get build deps
+        $install build-essential fakeroot debhelper autoconf automake libssl-dev \
+                 pkg-config bzip2 openssl python-all procps python-qt4 \
+                 python-zopeinterface python-twisted-conch dkms
+
+        # Build OVS
+        cd $BUILD_DIR/openvswitch/openvswitch-$OVS_RELEASE
+                DEB_BUILD_OPTIONS='parallel=2 nocheck' fakeroot debian/rules binary
+        cd ..
+        $pkginst openvswitch-common_$OVS_RELEASE*.deb openvswitch-datapath-dkms_$OVS_RELEASE*.deb \
+                 openvswitch-pki_$OVS_RELEASE*.deb openvswitch-switch_$OVS_RELEASE*.deb
+        if $pkginst openvswitch-controller_$OVS_RELEASE*.deb; then
+            echo "Ignoring error installing openvswitch-controller"
+        fi
+
+        modinfo openvswitch
+        sudo ovs-vsctl show
+        # Switch can run on its own, but
+        # Mininet should control the controller
+        # This appears to only be an issue on Ubuntu/Debian
+        if sudo service openvswitch-controller stop; then
+            echo "Stopped running controller"
+        fi
+        if [ -e /etc/init.d/openvswitch-controller ]; then
+            sudo update-rc.d openvswitch-controller disable
+        fi
     else
-        echo "Failed to find OVS at $OVS_TARBALL_LOC/openvswitch-$OVS_RELEASE.tar.gz"
-        cd $BUILD_DIR
-        return
-    fi
-
-    # Remove any old packages
-    $remove openvswitch-common openvswitch-datapath-dkms openvswitch-controller \
-            openvswitch-pki openvswitch-switch
-
-    # Get build deps
-    $install build-essential fakeroot debhelper autoconf automake libssl-dev \
-             pkg-config bzip2 openssl python-all procps python-qt4 \
-             python-zopeinterface python-twisted-conch dkms
-
-    # Build OVS
-    cd $BUILD_DIR/openvswitch/openvswitch-$OVS_RELEASE
-            DEB_BUILD_OPTIONS='parallel=2 nocheck' fakeroot debian/rules binary
-    cd ..
-    $pkginst openvswitch-common_$OVS_RELEASE*.deb openvswitch-datapath-dkms_$OVS_RELEASE*.deb \
-             openvswitch-pki_$OVS_RELEASE*.deb openvswitch-switch_$OVS_RELEASE*.deb
-    if $pkginst openvswitch-controller_$OVS_RELEASE*.deb; then
-        echo "Ignoring error installing openvswitch-controller"
-    fi
-
-    modinfo openvswitch
-    sudo ovs-vsctl show
-    # Switch can run on its own, but
-    # Mininet should control the controller
-    # This appears to only be an issue on Ubuntu/Debian
-    if sudo service openvswitch-controller stop; then
-        echo "Stopped running controller"
-    fi
-    if [ -e /etc/init.d/openvswitch-controller ]; then
-        sudo update-rc.d openvswitch-controller disable
+        echo "Failed to install Open vSwitch.  OS must be Ubuntu >= 12.04"
+            cd $BUILD_DIR
+            return
     fi
 }
 
@@ -338,47 +338,50 @@ function ubuntuOvs {
 function ovs {
     echo "Installing Open vSwitch..."
 
-    if [ "$DIST" = "Fedora" -o "$DIST" = "RedHatEnterpriseServer" ]; then
+    if [ "$DIST" == "Fedora" ]; then
         $install openvswitch openvswitch-controller
         return
-    fi
-
-    if [ "$DIST" = "Ubuntu" ] && ! version_ge $RELEASE 14.04; then
-        # Older Ubuntu versions need openvswitch-datapath/-dkms
-        # Manually installing openvswitch-datapath may be necessary
-        # for manually built kernel .debs using Debian's defective kernel
-        # packaging, which doesn't yield usable headers.
-        if ! dpkg --get-selections | grep openvswitch-datapath; then
-            # If you've already installed a datapath, assume you
-            # know what you're doing and don't need dkms datapath.
-            # Otherwise, install it.
-            $install openvswitch-datapath-dkms
-        fi
-    fi
-
-    $install openvswitch-switch
-    OVSC=""
-    if $install openvswitch-controller; then
-        OVSC="openvswitch-controller"
+    elif [ "$DIST" == "CentOS" ]; then
+        git clone https://github.com/openvswitch/ovs openvswitch
+        cd openvswitch
+        git checkout tags/v2.4.0
+        ./boot.sh
+        ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var \
+            --disable-ssl --with-debug CFLAGS='-g'
+        make -j3
+        sudo make install
+        return
     else
-        echo "Attempting to install openvswitch-testcontroller"
-        if $install openvswitch-testcontroller; then
-            OVSC="openvswitch-testcontroller"
-        else
-            echo "Failed - skipping openvswitch-testcontroller"
-        fi
+
+		# Manually installing openvswitch-datapath may be necessary
+		# for manually built kernel .debs using Debian's defective kernel
+		# packaging, which doesn't yield usable headers.
+		if ! dpkg --get-selections | grep openvswitch-datapath; then
+			# If you've already installed a datapath, assume you
+			# know what you're doing and don't need dkms datapath.
+			# Otherwise, install it.
+			$install openvswitch-datapath-dkms
+		fi
+
+		$install openvswitch-switch
+		if $install openvswitch-controller; then
+			# Switch can run on its own, but
+			# Mininet should control the controller
+			# This appears to only be an issue on Ubuntu/Debian
+			if sudo service openvswitch-controller stop; then
+				echo "Stopped running controller"
+			fi
+			if [ -e /etc/init.d/openvswitch-controller ]; then
+				sudo update-rc.d openvswitch-controller disable
+			fi
+		else
+			echo "Attempting to install openvswitch-testcontroller"
+			if ! $install openvswitch-testcontroller; then
+				echo "Failed - giving up"
+			fi
+		fi
     fi
-    if [ "$OVSC" ]; then
-        # Switch can run on its own, but
-        # Mininet should control the controller
-        # This appears to only be an issue on Ubuntu/Debian
-        if sudo service $OVSC stop; then
-            echo "Stopped running controller"
-        fi
-        if [ -e /etc/init.d/$OVSC ]; then
-            sudo update-rc.d $OVSC disable
-        fi
-    fi
+
 }
 
 function remove_ovs {
@@ -544,26 +547,26 @@ function oftest {
     echo "Installing oftest..."
 
     # Install deps:
-    $install tcpdump python-scapy
-
-    # Install oftest:
-    cd $BUILD_DIR/
-    git clone git://github.com/floodlight/oftest
+    if [ "$DIST" = "CentOS" ]; then
+        $install tcpdump scapy
+    else
+        # Install oftest:
+        cd $BUILD_DIR/
+        git clone git://github.com/floodlight/oftest
+    fi
 }
 
 # Install cbench
 function cbench {
     echo "Installing cbench..."
 
-    if [ "$DIST" = "Fedora" -o "$DIST" = "RedHatEnterpriseServer" ]; then
+    if [ "$DIST" = "Fedora" ] || [ "$DIST" = "CentOS" ]; then
         $install net-snmp-devel libpcap-devel libconfig-devel
     else
         $install libsnmp-dev libpcap-dev libconfig-dev
     fi
     cd $BUILD_DIR/
-    # was:  git clone git://gitosis.stanford.edu/oflops.git
-    # Use our own fork on github for now:
-    git clone git://github.com/mininet/oflops
+    git clone git://gitosis.stanford.edu/oflops.git
     cd oflops
     sh boot.sh || true # possible error in autoreconf, so run twice
     sh boot.sh
@@ -588,22 +591,15 @@ function vm_other {
     #    BLACKLIST=/etc/modprobe.d/blacklist
     #fi
     #sudo sh -c "echo 'blacklist net-pf-10\nblacklist ipv6' >> $BLACKLIST"
-    echo "Disabling IPv6"
+
     # Disable IPv6
-    if ! grep 'disable_ipv6' /etc/sysctl.conf; then
+    if ! grep 'disable IPv6' /etc/sysctl.conf; then
         echo 'Disabling IPv6'
         echo '
 # Mininet: disable IPv6
 net.ipv6.conf.all.disable_ipv6 = 1
 net.ipv6.conf.default.disable_ipv6 = 1
 net.ipv6.conf.lo.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf > /dev/null
-    fi
-    # Since the above doesn't disable neighbor discovery, also do this:
-    if ! grep 'ipv6.disable' /etc/default/grub; then
-        sudo sed -i -e \
-        's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="ipv6.disable=1 /' \
-        /etc/default/grub
-        sudo update-grub
     fi
     # Disabling IPv6 breaks X11 forwarding via ssh
     line='AddressFamily inet'
@@ -627,7 +623,7 @@ net.ipv6.conf.lo.disable_ipv6 = 1' | sudo tee -a /etc/sysctl.conf > /dev/null
     $install ntp
 
     # Install vconfig for VLAN example
-    if [ "$DIST" = "Fedora" -o "$DIST" = "RedHatEnterpriseServer" ]; then
+    if [ "$DIST" = "Fedora" ]; then
         $install vconfig
     else
         $install vlan
