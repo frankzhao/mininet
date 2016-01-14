@@ -1,6 +1,8 @@
 Mininet: Rapid Prototyping for Software Defined Networks
 ========================================================
 
+### Note: This forks adds CentOS support to the util/install.sh script.
+
 *The best way to emulate almost any network on your laptop!*
 
 Mininet 2.2.1
