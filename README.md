@@ -1,7 +1,21 @@
 Mininet: Rapid Prototyping for Software Defined Networks
 ========================================================
 
-### Note: This forks adds CentOS support to the util/install.sh script.
+### Note: This fork adds CentOS support to the util/install.sh script.
+
+This will only work with newer kernels, and not with the
+default 3.10 kernel. In order to update the kernel the elrepo can be
+used:
+
+```
+rpm -Uvh http://www.elrepo.org/elrepo-release-7.0-2.el7.elrepo.noarch.rpm
+yum install --enablerepo=elrepo-kernel kernel-ml
+```
+
+This may be integrated into the install script at a later time.
+See this bug report for more information: https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1197078
+
+--------------------------------
 
 *The best way to emulate almost any network on your laptop!*
 
