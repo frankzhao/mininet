@@ -12,6 +12,8 @@ rpm -Uvh http://www.elrepo.org/elrepo-release-7.0-2.el7.elrepo.noarch.rpm
 yum install --enablerepo=elrepo-kernel kernel-ml
 ```
 
+A reboot is necessary to start using the new kernel.
+
 This may be integrated into the install script at a later time.
 See this bug report for more information: https://bugs.launchpad.net/ubuntu/+source/linux/+bug/1197078
 
